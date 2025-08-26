@@ -2,37 +2,114 @@ const express = require("express");
 const qrcode = require("qrcode-terminal");
 const dns = require("dns");
 const axios = require("axios");
+const fs = require("fs");
+const path = require("path");
 
 const app = express();
 const port = process.env.NODEJS_TOOLS_PORT || 3000;
 
 app.use(express.json());
 
-let bannerCache = {
-    welcome: null,
-    free: null,
-    premium: null,
-    trouble: null
-};
+let githubCache = new Map();
+const GITHUB_CACHE_DURATION = 24 * 60 * 60 * 1000; // 24 hours
 
-async function updateBanners() {
-    const bannerTypes = ["welcome", "free", "paid", "trouble", "unrecognised_user"];
-    for (const type of bannerTypes) {
-        const bannerURL = process.env[`${type.toUpperCase()}_BANNER_URL`];
-        if (bannerURL) {
-            try {
-                const response = await axios.get(bannerURL);
-                bannerCache[type] = response.data;
-            } catch (error) {
-                console.error(`Error updating ${type} banner:`, error);
-            }
+function loadBanner(type) {
+    const bannersDir = path.join(__dirname, "../banners");
+    
+    if (type === "welcome") {
+        try {
+            const logo = fs.readFileSync(path.join(bannersDir, "logo_banner.txt"), "utf8");
+            const welcome = fs.readFileSync(path.join(bannersDir, "welcome_banner.txt"), "utf8");
+            return logo + "\n\n" + welcome;
+        } catch (error) {
+            console.error(`Error loading welcome banners:`, error);
+            return "Welcome to EXPOSE!";
         }
+    }
+    
+    try {
+        const bannerFile = path.join(bannersDir, `${type}_banner.txt`);
+        return fs.readFileSync(bannerFile, "utf8");
+    } catch (error) {
+        console.error(`Error loading ${type} banner:`, error);
+        return "";
     }
 }
 
-setInterval(updateBanners, 60000);
+async function checkGitHubStargazer(username) {
+    const cacheKey = `${username}_star`;
+    const now = Date.now();
+    const githubRepo = process.env.GITHUB_REPOSITORY || 'exposesh/expose-server';
+    
+    if (githubCache.has(cacheKey)) {
+        const cached = githubCache.get(cacheKey);
+        if (now - cached.timestamp < GITHUB_CACHE_DURATION) {
+            return cached.isStargazer;
+        }
+    }
+    
+    try {
+        const response = await axios.get(`https://api.github.com/repos/${githubRepo}/stargazers`, {
+            headers: {
+                'User-Agent': 'EXPOSE-Tool'
+            }
+        });
+        
+        const isStargazer = response.data.some(stargazer => stargazer.login === username);
+        
+        githubCache.set(cacheKey, {
+            isStargazer,
+            timestamp: now
+        });
+        
+        return isStargazer;
+    } catch (error) {
+        console.error(`Error checking stargazer status for ${username}:`, error);
+        
+        if (githubCache.has(cacheKey)) {
+            return githubCache.get(cacheKey).isStargazer;
+        }
+        
+        return false;
+    }
+}
 
-updateBanners();
+async function fetchGitHubSSHKeys(username) {
+    const cacheKey = `${username}_keys`;
+    const now = Date.now();
+    
+    if (githubCache.has(cacheKey)) {
+        const cached = githubCache.get(cacheKey);
+        if (now - cached.timestamp < GITHUB_CACHE_DURATION) {
+            return cached.keys;
+        }
+    }
+    
+    try {
+        const response = await axios.get(`https://api.github.com/users/${username}/keys`, {
+            headers: {
+                'User-Agent': 'EXPOSE-Tool'
+            }
+        });
+        
+        const keys = response.data.map(key => key.key);
+        
+        githubCache.set(cacheKey, {
+            keys,
+            timestamp: now
+        });
+        
+        return keys;
+    } catch (error) {
+        console.error(`Error fetching SSH keys for ${username}:`, error);
+        
+        if (githubCache.has(cacheKey)) {
+            return githubCache.get(cacheKey).keys;
+        }
+        
+        return [];
+    }
+}
 
 app.get("/generateQRCode", async (req, res) => {
     const url = req.query.url;
@@ -81,15 +158,15 @@ app.get("/getAllInstancesIPv6", async (req, res) => {
 
 async function getAllInstances(flydotioAppName) {
     try {
-        records = await dns.promises.resolve6(`global.${flydotioAppName}.internal`)
+        const records = await dns.promises.resolve6(`global.${flydotioAppName}.internal`);
+        return records;
     } catch (error) {
         console.log(error);
         return {
             "error": error
-        }
+        };
     }
-    return records;
-};
+}
 
 app.get("/addToNginxCache", async (req, res) => {
     const flydotioAppName = process.env.FLYDOTIO_APP_NAME;
@@ -207,9 +284,16 @@ app.get("/checkIfTunnelExists", async (req, res) => {
 app.get("/getBanner", async (req, res) => {
     const type = req.query.type;
 
-    if (bannerCache[type]) {
+    if (!type) {
+        res.status(400).send("Type is required");
+        return;
+    }
+
+    const banner = loadBanner(type);
+    
+    if (banner) {
         res.status(200).json({
-            bannerContent: bannerCache[type]
+            bannerContent: banner
         });
     } else {
         res.status(400).send(`Unhandled banner type: ${type}`);
@@ -217,96 +301,55 @@ app.get("/getBanner", async (req, res) => {
 });
 
 app.get("/keyMatchesAccount", async (req, res) => {
-    const {
-        username,
-        key
-    } = req.query;
+    const { username, key } = req.query;
 
     try {
-        const response = await axios.get(process.env.VERIFY_GITHUB_USER_AND_FETCH_SSH_KEYS_URL, {
-            params: {
-                username
-            },
-            headers: {
-                Authorization: process.env.ACCESS_TOKEN
-            },
-            timeout: 10000
-        });
+        const sshKeys = await fetchGitHubSSHKeys(username);
+        const isStargazer = await checkGitHubStargazer(username);
 
-        if (response.status === 200) {
-            const data = response.data;
-            const sshKeys = data.sshKeys || [];
-            const isSponsor = data.sponsor || false;
-
-            if (sshKeys.includes(key)) {
-                console.log(`The key matches the account ${username}`);
-                if (isSponsor) {
-                    console.log(`The user ${username} is a sponsor`);
-                }
-                res.json({
-                    matches: true,
-                    isSponsor
-                });
-            } else {
-                console.error(`The key does not match the account ${username}`);
-                res.json({
-                    matches: false,
-                    isSponsor
-                });
+        if (sshKeys.includes(key)) {
+            console.log(`Key matches account ${username}`);
+            if (isStargazer) {
+                console.log(`User ${username} is a stargazer`);
             }
-        } else if (response.status === 404) {
-            console.log(`The user ${username} is not found as sponsor or stargazer`);
+            res.json({
+                matches: true,
+                isStargazer
+            });
+        } else {
+            console.log(`Key does not match account ${username}`);
             res.json({
                 matches: false,
-                isSponsor: false
+                isStargazer: false
             });
         }
     } catch (error) {
-        console.error(`An error occurred while checking SSH keys for ${username}: ${error}`);
+        console.error(`Error checking SSH keys for ${username}: ${error}`);
         res.json({
             matches: false,
-            isSponsor: false
+            isStargazer: false
         });
     }
 });
 
-app.get("/isUserSponsor", async (req, res) => {
-    const {
-        username
-    } = req.query;
+app.get("/isUserStargazer", async (req, res) => {
+    const { username } = req.query;
 
     try {
-        const response = await axios.get(process.env.VERIFY_GITHUB_USER_AND_FETCH_SSH_KEYS_URL, {
-            params: {
-                username
-            },
-            headers: {
-                Authorization: process.env.ACCESS_TOKEN
-            },
-            timeout: 10000
-        });
+        const isStargazer = await checkGitHubStargazer(username);
 
-        if (response.status === 200) {
-            const isSponsor = response.data.sponsor || false;
-
-            if (isSponsor) {
-                console.log(`The user ${username} is a sponsor`);
-            } else {
-                console.log(`The user ${username} is not a sponsor`);
-            }
-            res.json({
-                isSponsor
-            });
-        } else if (response.status === 404) {
-            console.log(`The user ${username} is not a sponsor`);
-            res.json({
-                isSponsor: false
-            });
+        if (isStargazer) {
+            console.log(`User ${username} is a stargazer`);
+        } else {
+            console.log(`User ${username} is not a stargazer`);
         }
-    } catch (error) {
-        console.error(`An error has occurred while checking the status of the user ${username}: ${error}`);
         res.json({
-            isSponsor: false
+            isStargazer
+        });
+    } catch (error) {
+        console.error(`Error checking stargazer status for ${username}: ${error}`);
+        res.json({
+            isStargazer: false
         });
     }
 });
