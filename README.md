@@ -7,117 +7,236 @@
     </a>
 </h1>
 
-# EXPOSE-server
+<p align="center">
+    <a href="#about">About</a> •
+    <a href="#demo">Demo</a> •
+    <a href="#features">Features</a> •
+    <a href="#use-cases">Use-cases</a> •
+    <a href="#access">Access</a> •
+    <a href="#architecture">Architecture</a> •
+    <a href="#deployment">Deployment</a> •
+    <a href="#faqs">FAQs</a>
+</p>
 
 ## About
 
-EXPOSE-server is the heart of EXPOSE.  
-It consists of various programmes that are containerised in a single Docker container and then deployed to machines all over the world using [Fly.io](https://fly.io).
-These different programs are :
-- An SSH server in Python,
-- A Node.js program that acts as an intermediary between the SSH server and the Web server, as well as between remote Web resources and programs in the container,
-- A Web server built on OpenResty.
+EXPOSE is your new favourite open source tool for exposing your local services on the public Internet with no installation or configuration required. EXPOSE relies on your SSH client and authenticates using the public SSH keys you have on your GitHub account.
 
-Find out more about EXPOSE by [clicking here](https://expose.sh).
-
-## Deploy
-
-### Generating an SSH key pair
-
+To expose `localhost:3000`, simply type:
+```bash
+ssh -R 1:localhost:3000 expose.sh
 ```
+
+If your computer username differs from your GitHub username:
+```bash
+ssh -R 1:localhost:3000 yourusername@expose.sh
+```
+
+## Demo
+
+https://github.com/user-attachments/assets/9908b156-6e12-4a6e-8cf7-46b701f48461
+
+## Features
+
+- **Nothing to install**: use only your terminal and SSH client
+- **Nothing to configure**: automatically retrieve public SSH keys from your GitHub account
+- **Custom URL**: based on your GitHub username
+- **QR code generation**: for easy mobile testing
+- **Multiple tunnels**: up to 5 simultaneous services per account
+- **Distributed system**: global routing for fastest access worldwide
+- **Secure**: SSH encryption with automatic HTTPS certificates
+- **Open source**: fully transparent
+
+## Use-cases
+
+- **Demos and presentations**: access your applications from any internet-connected device
+- **Mobile development**: expose local backends for Android/iOS app testing
+- **Webhook testing**: test webhooks from payment gateways, messaging platforms, and APIs
+- **Cross-device testing**: ensure your application works on all device types
+- **Development sharing**: quickly share work-in-progress with team members
+
+## Access
+
+To prevent malicious use, you must star this repository to access EXPOSE.  
+Authentication is handled through your [GitHub SSH keys](https://docs.github.com/en/authentication/connecting-to-github-with-ssh/generating-a-new-ssh-key-and-adding-it-to-the-ssh-agent).
+
+**Tunnel allocation:**
+- Tunnels 1-3: Named as `username`, `username-2`, `username-3`, etc.
+- Tunnels 4-5: Random names like `username-x7k2m9`
+- Maximum: 5 concurrent tunnels per user
+- Session limit: 2 hours (reconnectable unlimited times)
+
+## Architecture
+
+EXPOSE consists of three containerized components deployed globally using [Fly.io](https://fly.io):
+
+### SSH Server (Python)
+- Handles SSH connections and authentication
+- Validates GitHub SSH keys and stargazer status
+- Manages tunnel creation with slot-based naming
+- Enforces connection limits and timeouts
+- Creates Unix socket forwarding for local services
+
+### Tools Service (Node.js)
+- Acts as intermediary between SSH server and web server
+- Manages GitHub API integration with caching
+- Generates QR codes for tunnel URLs
+- Handles cache management across distributed instances
+- Serves local banner content
+
+### Web Server (OpenResty/Nginx)
+- Routes traffic to appropriate tunnels based on subdomains
+- Handles caching and load balancing
+- Provides HTTPS termination with automatic certificates
+- Manages WebSocket upgrades
+
+## Deployment
+
+### Prerequisites
+
+Generate an SSH key pair:
+```bash
 ssh-keygen -t ed25519 -f ./ssh_key -N ""
 ```
 
-### Completing `fly.toml` file
+### Configuration
 
-Copy the file `fly.toml.example` to `fly.toml`:
-
-```
+1. Copy the example configuration:
+```bash
 cp fly.toml.example fly.toml
 ```
 
-You need to define the following environment variables:
+2. Update the required configuration fields:
+```toml
+app = 'your-app-name'
+primary_region = 'cdg'  # Choose your preferred region
 
+[env]
+  FLYDOTIO_APP_NAME = 'your-app-name'
+  HTTP_URL = 'yourdomain.com'
+  SSH_SERVER_URL = 'ssh.yourdomain.com'
+  GITHUB_REPOSITORY = 'gaetanlhf/EXPOSE'
 ```
-WELCOME_BANNER_URL
-FREE_BANNER_URL
-PAID_BANNER_URL
-TROUBLE_BANNER_URL
-UNRECOGNISED_USER_BANNER_URL
-VERIFY_GITHUB_USER_AND_FETCH_SSH_KEYS_URL
-```
 
-The first four correspond to the banners, and therefore their access link on Google Cloud Storage.  
-The last is the link to the Cloud Function that manages user verification.
+3. Configure optional settings:
+   - Adjust `NAMED_TUNNELS_RANGE` and `RANDOM_TUNNELS_RANGE` for tunnel allocation
+   - Set `TIMEOUT` for session duration (in minutes)
+   - Modify `LOG_LEVEL` for debugging (`DEBUG`, `INFO`, `WARNING`, `ERROR`)
 
-### Deploying on `fly.io`
+### Deploy to Fly.io
 
-Type:
-
-```
+1. Launch the application:
+```bash
 fly launch
 ```
 
-Modify the type of machine as you wish, and enable dedicated IPv4 and IPv6 addresses.
-
-### Adding secrets
-
-First you need to add a secret containing the SSH server's private key:
-
-```
+2. Add the SSH private key secret:
+```bash
 fly secrets set SSH_SERVER_KEY="$(cat ssh_key)"
 ```
 
-And then the secret containing the access token that enables communication with the Cloud Function:
+3. Configure DNS to point your domains to Fly.io's IPv4 and IPv6 addresses
 
+4. Add HTTPS certificates in the Fly.io dashboard for your domains
+
+### Local Development
+
+1. Build the container:
+```bash
+docker build -t expose .
 ```
-fly secrets set ACCESS_TOKEN=
+
+3. Run with required environment variables:
+```bash
+docker run -p 2222:2222 -p 80:80 \
+  -e FLYDOTIO_APP_NAME=expose-local \
+  -e HTTP_URL=localhost \
+  -e SSH_SERVER_URL=localhost \
+  -e GITHUB_REPOSITORY=gaetanlhf/EXPOSE \
+  -e SSH_SERVER_KEY="$(cat ssh_key)" \
+  expose
 ```
 
-### Pointing domain names to Fly.io's IPv4 and IPv6 addresses
+## Configuration Variables
 
-In your registrar's interface, add the IPv4 and IPv6 addresses that Fly.io has assigned to your domain names.
+### Required Variables
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `app` | Fly.io application name | `my-expose-server` |
+| `primary_region` | Fly.io deployment region | `cdg`, `lax`, `fra` |
+| `FLYDOTIO_APP_NAME` | Must match the app name | `my-expose-server` |
+| `HTTP_URL` | Domain for tunnel URLs | `expos.es` |
+| `SSH_SERVER_URL` | SSH connection endpoint | `expose.sh` |
+| `GITHUB_REPOSITORY` | Repository to check for stargazers | `gaetanlhf/EXPOSE` |
 
-### Add certificates for HTTPS support
+### Optional Variables
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `NAMED_TUNNELS_RANGE` | `1-3` | Slots for username-based naming |
+| `RANDOM_TUNNELS_RANGE` | `4-5` | Slots for random naming |
+| `TIMEOUT` | `120` | Session timeout in minutes |
+| `LOG_LEVEL` | `INFO` | Logging level (`DEBUG`, `INFO`, `WARNING`, `ERROR`) |
+| `SSH_SERVER_PORT` | `2222` | Internal SSH server port |
+| `NODEJS_TOOLS_PORT` | `3000` | Internal tools service port |
 
-In the Fly.io web interface, in the certificate section, add certificates for your domain names (for example: `expose.sh`, `expos.es` and `*.expos.es`).
+## Usage Examples
 
-## More details
-### SSH server
+Single tunnel:
+```bash
+ssh -R 1:localhost:3000 expose.sh
+```
 
-The SSH server initializes by loading configurations from environment variables and setting up logging. It checks for the existence of the SSH host key and generates it if necessary. The server creates the UNIX socket directory if it doesn't exist.
+Multiple tunnels:
+```bash
+ssh -R 1:localhost:3000 -R 2:localhost:8080 expose.sh
+```
 
-The SSH server starts using `asyncssh`, listening for connections on the specified host and port. When a connection is made, it is associated with an IP address and a rate limiter to control excessive connections. Users are authenticated via public keys, verifying if the key matches an authorized account and if they are sponsors. If authenticated and not rate-limited, the server establishes UNIX port forwarding and provides the corresponding internet address.
+Auto-reconnect:
+```bash
+until ssh -R 1:localhost:3000 expose.sh; do echo "Reconnecting..."; done
+```
 
-For each connection, the server generates a unique socket path and manages sponsor or free user files. It adds and removes OpenResty cache entries to manage tunnels. The server limits the number of concurrent connections for free users and automatically disconnects them after a defined period. It regularly checks if a user is still a sponsor and disconnects those who are no longer.
+## FAQs
 
-The server sends welcome, unrecognized user, sponsor, or free user banners upon connection. It provides status messages and QR codes for accessing exposed services. Utility functions generate random slugs for connection IDs, manage UNIX socket directories, and handle errors and exceptions to ensure smooth server operation.
+<details>
+<summary>Is EXPOSE secure?</summary>
+Yes, SSH is an encrypted protocol, and access to your application is secure thanks to automatic HTTPS certificates.
+</details>
 
-### Node.js tools
+<details>
+<summary>What do you mean by no installation and no configuration?</summary>
+<strong>No installation</strong> because EXPOSE uses your existing SSH client. <strong>No configuration</strong> because EXPOSE automatically retrieves data from your SSH client and GitHub account.
+</details>
 
-The Node.js server uses Express to handle HTTP requests and has routes for generating QR codes, managing OpenResty cache, checking tunnels, and verifying user accounts.  
-It uses Axios for HTTP requests and DNS promises to resolve IPv6 addresses.  
-The server periodically updates banner messages from specified URLs and caches them. It listens on a configurable port and processes JSON request bodies.
+<details>
+<summary>How many tunnels can I create simultaneously?</summary>
+You can create up to 10 simultaneous tunnels. Slots 1-3 use your username, slots 4-5 use your username + random chars.
+</details>
 
-The `/generateQRCode` endpoint generates a QR code from a provided URL.  
-The `/getAllInstancesIPv6` endpoint retrieves all IPv6 instances of a specified Fly.io app.  
-The `/addToNginxCache` and `/removeFromNginxCache` endpoints manage Nginx cache entries for the app across all instances.  
-The `/checkIfTunnelExists` endpoint checks if a tunnel exists for a specified app name across instances.  
-The `/getBanner` endpoint returns cached banner content based on the requested type.  
-The `/keyMatchesAccount` endpoint verifies if a given SSH key matches a GitHub account and checks if the user is a sponsor.  
-The `/isUserSponsor` endpoint checks if a GitHub user is a sponsor.
+<details>
+<summary>What's the session time limit?</summary>
+Each session lasts up to 2 hours, but you can reconnect unlimited times.
+</details>
 
-### Web server
+<details>
+<summary>I see "Cannot connect to your local application" in the browser</summary>
+Ensure your local application is running and accessible at `http://localhost:port`.
+</details>
 
-The OpenResty configuration manages traffic for various application subdomains, checks for EXPOSE tunnels, and handles caching. The configuration uses all available CPU cores and optimizes connection handling. It handles WebSocket upgrades and sets up a shared cache. It uses Google DNS for resolution.
+<details>
+<summary>I see "connect_to localhost port failed" in terminal</summary>
+Verify your local service is running on the specified port by testing `http://localhost:port` in your browser.
+</details>
 
-The first server block listens on port 80 and dynamically routes requests based on the application name subdomain. It checks a cache for backend IPs or fetches them from a local service and updates the cache as needed. It proxies requests to the backend or returns a 404 error if no tunnel is found.
+<details>
+<summary>Does EXPOSE support other protocols?</summary>
+EXPOSE supports HTTP, HTTPS, and WebSocket protocols.
+</details>
 
-The second server block listens on port 8080 and handles requests to local applications via Unix sockets. It checks if the application is a sponsor and sets a rate limit if not.
-
-The third server block listens on port 8081 and manages cache entries via endpoints for adding and removing cache entries and checks for EXPOSE tunnels.
-
-The fourth and fifth server blocks redirect requests to "expose.sh" and "expos.es" to the project's GitHub page.
+<details>
+<summary>Where can I get help?</summary>
+Open an issue on this repository or send an email to <a href="mailto:gaetan@expose.sh">gaetan@expose.sh</a>.
+</details>
 
 ## License
 

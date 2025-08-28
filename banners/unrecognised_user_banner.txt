@@ -1,0 +1,8 @@
+Welcome to EXPOSE!
+Your no configuration, no installation, globally distributed 
+open source tool to expose your local services.
+You do not have access to EXPOSE.
+To access EXPOSE, you must be a GitHub user, have added 
+a public SSH key to your GitHub account, and have added a star 
+to the EXPOSE repository (to avoid improper use of EXPOSE).
+Find out more at https://expose.sh
