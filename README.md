@@ -34,7 +34,7 @@ ssh -R 1:localhost:3000 yourusername@expose.sh
 
 ## Demo
 
-https://github.com/gaetanlhf/EXPOSE/raw/main/.github/assets/expose_demo.mp4
+https://github.com/user-attachments/assets/9908b156-6e12-4a6e-8cf7-46b701f48461
 
 ## Features
 
