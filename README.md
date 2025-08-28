@@ -41,7 +41,6 @@ https://github.com/user-attachments/assets/9908b156-6e12-4a6e-8cf7-46b701f48461
 - **Nothing to install**: use only your terminal and SSH client
 - **Nothing to configure**: automatically retrieve public SSH keys from your GitHub account
 - **Custom URL**: based on your GitHub username
-- **Multiple protocols**: HTTP, HTTPS & WebSocket supported
 - **QR code generation**: for easy mobile testing
 - **Multiple tunnels**: up to 5 simultaneous services per account
 - **Distributed system**: global routing for fastest access worldwide
@@ -53,7 +52,6 @@ https://github.com/user-attachments/assets/9908b156-6e12-4a6e-8cf7-46b701f48461
 - **Demos and presentations**: access your applications from any internet-connected device
 - **Mobile development**: expose local backends for Android/iOS app testing
 - **Webhook testing**: test webhooks from payment gateways, messaging platforms, and APIs
-- **Home server exposure**: make your Raspberry Pi or local server publicly accessible
 - **Cross-device testing**: ensure your application works on all device types
 - **Development sharing**: quickly share work-in-progress with team members
 
@@ -232,7 +230,7 @@ Verify your local service is running on the specified port by testing `http://lo
 
 <details>
 <summary>Does EXPOSE support other protocols?</summary>
-EXPOSE supports HTTP, HTTPS, and WebSocket protocols through its web-based tunneling.
+EXPOSE supports HTTP, HTTPS, and WebSocket protocols.
 </details>
 
 <details>
