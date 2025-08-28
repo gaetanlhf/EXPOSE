@@ -212,7 +212,7 @@ Yes, SSH is an encrypted protocol, and access to your application is secure than
 
 <details>
 <summary>How many tunnels can I create simultaneously?</summary>
-You can create up to 10 simultaneous tunnels. Slots 1-5 use your username, slots 6-10 use random names.
+You can create up to 10 simultaneous tunnels. Slots 1-3 use your username, slots 4-5 use your username + random chars.
 </details>
 
 <details>
