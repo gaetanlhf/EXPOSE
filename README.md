@@ -1,9 +1,9 @@
 <h1 align="center">
     <a href="https://expose.sh/#gh-light-mode-only">
-    <img src="./.assets/expose_logo_black.svg">
+    <img src="./.github/assets/expose_logo_black.svg">
     </a>
     <a href="https://expose.sh/#gh-dark-mode-only">
-    <img src="./.assets/expose_logo_white.svg">
+    <img src="./.github/assets/expose_logo_white.svg">
     </a>
 </h1>
 
