@@ -24,11 +24,13 @@ import socket
 
 access_token: str = os.getenv("ACCESS_TOKEN", "")
 unix_sockets_dir: str = os.getenv("UNIX_SOCKETS_DIRECTORY", "./")
-main_url: str = os.getenv("MAIN_URL", "expose.sh")
-http_url: str = os.getenv("HTTP_URL", "expos.es")
-ssh_server_url: str = os.getenv("SSH_SERVER_URL", "expose.sh")
+main_url: str = os.getenv("MAIN_URL", "")
+http_url: str = os.getenv("HTTP_URL", "")
+ssh_server_url: str = os.getenv("SSH_SERVER_URL", "")
 config_dir: str = os.getenv("CONFIG_DIRECTORY", ".")
 timeout: int = int(os.getenv("TIMEOUT", "120"))
+named_tunnels_range: str = os.getenv("NAMED_TUNNELS_RANGE", "1-3")
+random_tunnels_range: str = os.getenv("RANDOM_TUNNELS_RANGE", "4-5")
 ssh_server_host: str = os.getenv("SSH_SERVER_HOST", "0.0.0.0")
 ssh_server_port: int = int(os.getenv("SSH_SERVER_PORT", "2222"))
 ssh_server_key: str = os.getenv("SSH_SERVER_KEY", "")
@@ -55,6 +57,30 @@ def get_ipv6_address(hostname: str) -> Optional[str]:
 
 
 container_ip = get_ipv6_address("fly-local-6pn")
+
+
+def parse_range(range_str: str) -> tuple:
+    try:
+        start, end = map(int, range_str.split('-'))
+        return start, end
+    except ValueError:
+        return 1, 5
+
+
+def get_max_slot() -> int:
+    named_start, named_end = parse_range(named_tunnels_range)
+    random_start, random_end = parse_range(random_tunnels_range)
+    return max(named_end, random_end)
+
+
+def is_slot_in_named_range(slot: int) -> bool:
+    start, end = parse_range(named_tunnels_range)
+    return start <= slot <= end
+
+
+def is_slot_in_random_range(slot: int) -> bool:
+    start, end = parse_range(random_tunnels_range)
+    return start <= slot <= end
 
 
 def key_matches_account(username: str, key: str) -> tuple:
@@ -202,27 +228,39 @@ class SSHServer(asyncssh.SSHServer):
         except Exception as e:
             logging.error(f"Error during cleanup: {e}")
 
-    def generate_socket_path(self) -> str:
+    def server_requested(self, listen_host: str, listen_port: int):
+        slot = listen_port
+        max_slot = get_max_slot()
+        if slot < 1 or slot > max_slot:
+            self.conn.set_extra_info(invalid_slot=True)
+            self.conn.set_extra_info(slot_number=slot)
+            return None
+            
         socket_name: str = self.conn.get_extra_info("username")
         
-        if check_if_tunnel_exists(socket_name):
-            suffix = 2
-            while check_if_tunnel_exists(f"{socket_name}-{suffix}"):
-                suffix += 1
-            socket_name = f"{socket_name}-{suffix}"
-            
-        self.socket_path = os.path.join(unix_sockets_dir, f"{socket_name}.sock")
-        self.socket_paths[self.socket_path] = socket_name
+        if is_slot_in_named_range(slot):
+            final_name = f"{socket_name}-{slot}" if slot > 1 else socket_name
+        elif is_slot_in_random_range(slot):
+            import random
+            import string
+            random_suffix = ''.join(random.choices(string.ascii_lowercase + string.digits, k=6))
+            final_name = f"{socket_name}-{random_suffix}"
+        else:
+            final_name = f"{socket_name}-{slot}" if slot > 1 else socket_name
         
-        meta_file = os.path.join(unix_sockets_dir, f"{socket_name}.meta")
+        if check_if_tunnel_exists(final_name):
+            self.conn.set_extra_info(tunnel_exists=True)
+            self.conn.set_extra_info(existing_name=final_name)
+            return None
+        
+        rewrite_path = os.path.join(unix_sockets_dir, f"{final_name}.sock")
+        self.socket_paths[rewrite_path] = final_name
+        
+        meta_file = os.path.join(unix_sockets_dir, f"{final_name}.meta")
         open(meta_file, "w").close()
         
-        add_to_cache(socket_name, container_ip)
+        add_to_cache(final_name, container_ip)
         self.conn.set_extra_info(socket_paths=self.socket_paths)
-        return self.socket_path
-
-    def server_requested(self, listen_host: str, listen_port: int):
-        rewrite_path: str = self.generate_socket_path()
 
         async def tunnel_connection(
             session_factory: SSHUNIXSessionFactory[AnyStr],
@@ -237,19 +275,8 @@ class SSHServer(asyncssh.SSHServer):
             logging.error(f"Error creating forward listener: {str(e)}")
 
     def unix_server_requested(self, listen_path: str):
-        rewrite_path: str = self.generate_socket_path()
-
-        async def tunnel_connection(
-            session_factory: SSHUNIXSessionFactory[AnyStr],
-        ) -> Tuple[SSHUNIXChannel[AnyStr], SSHUNIXSession[AnyStr]]:
-            return await self.conn.create_unix_connection(session_factory, listen_path)
-
-        try:
-            return create_unix_forward_listener(
-                self.conn, asyncio.get_event_loop(), tunnel_connection, rewrite_path
-            )
-        except OSError as e:
-            logging.error(f"Error creating forward listener: {str(e)}")
+        self.conn.set_extra_info(unix_socket_rejected=True)
+        return None
 
 
 async def handle_ssh_client(process) -> None:
@@ -257,6 +284,11 @@ async def handle_ssh_client(process) -> None:
     is_key_matching: bool = process.get_extra_info("key_matching")
     is_stargazer: bool = process.get_extra_info("stargazer")
     username: str = process.get_extra_info("username")
+    invalid_slot: bool = process.get_extra_info("invalid_slot", False)
+    slot_number: int = process.get_extra_info("slot_number", 0)
+    tunnel_exists: bool = process.get_extra_info("tunnel_exists", False)
+    existing_name: str = process.get_extra_info("existing_name", "")
+    unix_socket_rejected: bool = process.get_extra_info("unix_socket_rejected", False)
 
     welcome_banner: str = get_banner("welcome")
     process.stdout.write(welcome_banner + "\n\n")
@@ -268,20 +300,63 @@ async def handle_ssh_client(process) -> None:
         process.exit(1)
         return
 
-    if not socket_paths:
-        response = f"Usage: ssh -R 1:host:port {ssh_server_url}\n"
+    if invalid_slot:
+        max_slot = get_max_slot()
+        response = f"Invalid slot number: {slot_number}. Please use slots 1-{max_slot} only.\n"
         process.stdout.write(response)
-        process.logger.info("User rejected: not in port forwarding mode")
+        process.logger.info(f"User rejected: invalid slot {slot_number}")
+        process.exit(1)
+        return
+
+    if tunnel_exists:
+        response = f"Tunnel already exists: {existing_name}. Please use a different slot.\n"
+        process.stdout.write(response)
+        process.logger.info(f"User rejected: tunnel {existing_name} already exists")
+        process.exit(1)
+        return
+
+    if unix_socket_rejected or not socket_paths:
+        named_start, named_end = parse_range(named_tunnels_range)
+        random_start, random_end = parse_range(random_tunnels_range)
+        max_slot = get_max_slot()
+        timeout_hours = timeout // 60
+
+        import random
+        import string
+        random_suffix = ''.join(random.choices(string.ascii_lowercase + string.digits, k=6))
+        
+        response = f"""Usage: ssh -R <slot>:localhost:<localport> {ssh_server_url}
+
+Tunnel naming rules:
+- Slots {named_start}-{named_end}: Named as {username}, {username}-2, {username}-3, etc.
+- Slots {random_start}-{random_end}: Random names like {username}-{random_suffix}
+- Maximum: {max_slot} concurrent tunnels per user (slots 1-{max_slot})
+- Session limit: {timeout_hours} hours
+
+Only numbered slots are supported. Unix socket forwarding is not allowed.
+
+Examples:
+ssh -R 1:localhost:3000 {ssh_server_url}                              Named tunnel: {username}
+ssh -R 2:localhost:8080 {ssh_server_url}                              Named tunnel: {username}-2
+ssh -R 1:localhost:3000 -R 2:localhost:8080 {ssh_server_url}          Named tunnels: {username}, {username}-2
+ssh -R {random_start}:localhost:9000 {ssh_server_url}                 Random tunnel name
+"""
+        process.stdout.write(response)
+        if unix_socket_rejected:
+            process.logger.info("User rejected: unix socket forwarding not allowed")
+        else:
+            process.logger.info("User rejected: not in port forwarding mode")
         process.exit(1)
         return
 
     async def process_timeout(proc):
         await asyncio.sleep(timeout * 60)
-        response = f"\nTimeout: automatically disconnected after {timeout} minutes.\n"
+        response = f"\nTimeout: automatically disconnected after {timeout_hours} hours.\n"
         proc.stdout.write(response)
-        proc.logger.info(f"User automatically disconnected after {timeout} minutes")
+        proc.logger.info(f"User automatically disconnected after {timeout_hours} hours")
         proc.close()
 
+    timeout_hours = timeout // 60
     for socket_path, socket_name in socket_paths.items():
         no_tls: str = f"{socket_name}.{http_url}"
         tls: str = f"https://{socket_name}.{http_url}"
