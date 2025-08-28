@@ -46,7 +46,7 @@ https://github.com/gaetanlhf/EXPOSE/raw/main/.github/assets/expose_demo.mp4
 - **Multiple tunnels**: up to 5 simultaneous services per account
 - **Distributed system**: global routing for fastest access worldwide
 - **Secure**: SSH encryption with automatic HTTPS certificates
-- **Open source**: fully transparent and community-driven
+- **Open source**: fully transparent
 
 ## Use-cases
 
@@ -59,7 +59,8 @@ https://github.com/gaetanlhf/EXPOSE/raw/main/.github/assets/expose_demo.mp4
 
 ## Access
 
-To prevent malicious use, you must star this repository to access EXPOSE. Authentication is handled through your GitHub SSH keys.
+To prevent malicious use, you must star this repository to access EXPOSE.  
+Authentication is handled through your [GitHub SSH keys](https://docs.github.com/en/authentication/connecting-to-github-with-ssh/generating-a-new-ssh-key-and-adding-it-to-the-ssh-agent).
 
 **Tunnel allocation:**
 - Tunnels 1-3: Named as `username`, `username-2`, `username-3`, etc.
@@ -173,8 +174,8 @@ docker run -p 2222:2222 -p 80:80 \
 ### Optional Variables
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `NAMED_TUNNELS_RANGE` | `1-5` | Slots for username-based naming |
-| `RANDOM_TUNNELS_RANGE` | `6-10` | Slots for random naming |
+| `NAMED_TUNNELS_RANGE` | `1-3` | Slots for username-based naming |
+| `RANDOM_TUNNELS_RANGE` | `4-5` | Slots for random naming |
 | `TIMEOUT` | `120` | Session timeout in minutes |
 | `LOG_LEVEL` | `INFO` | Logging level (`DEBUG`, `INFO`, `WARNING`, `ERROR`) |
 | `SSH_SERVER_PORT` | `2222` | Internal SSH server port |
