@@ -139,24 +139,6 @@ fly secrets set SSH_SERVER_KEY="$(cat ssh_key)"
 
 4. Add HTTPS certificates in the Fly.io dashboard for your domains
 
-### Local Development
-
-1. Build the container:
-```bash
-docker build -t expose .
-```
-
-3. Run with required environment variables:
-```bash
-docker run -p 2222:2222 -p 80:80 \
-  -e FLYDOTIO_APP_NAME=expose-local \
-  -e HTTP_URL=localhost \
-  -e SSH_SERVER_URL=localhost \
-  -e GITHUB_REPOSITORY=gaetanlhf/EXPOSE \
-  -e SSH_SERVER_KEY="$(cat ssh_key)" \
-  expose
-```
-
 ## Configuration Variables
 
 ### Required Variables
